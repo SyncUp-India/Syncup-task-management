@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, email, password, department, recovery_email } = await request.json()
+  const { name, email, password, department, recovery_email, role: bodyRole } = await request.json()
 
   if (!name || !email || !password) {
     return NextResponse.json({ error: 'Name, email and password are required' }, { status: 400 })
@@ -34,9 +34,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
   }
 
-  const dept = department || 'developer'
-  // admin department → role admin, all others → role user
-  const role = dept === 'admin' ? 'admin' : 'user'
+  const role = bodyRole === 'admin' ? 'admin' : 'user'
+  const dept = department || null
 
   const hash = await hashPassword(password)
 

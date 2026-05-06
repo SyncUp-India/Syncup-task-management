@@ -6,12 +6,15 @@ export async function POST(req: NextRequest) {
   const session = await getSessionFromRequest(req)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const today    = new Date().toISOString().slice(0, 10)
-  const now      = new Date().toISOString()
+  const today = new Date().toISOString().slice(0, 10)
+  const now   = new Date().toISOString()
+
+  const body = await req.json().catch(() => ({}))
+  const pod  = body.pod?.trim() || null
 
   const { data: existing } = await supabaseAdmin
     .from('timesheets')
-    .select('id, check_in, check_out')
+    .select('id, check_in')
     .eq('user_id', session.userId)
     .eq('date', today)
     .maybeSingle()
@@ -23,7 +26,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from('timesheets')
     .upsert(
-      { user_id: session.userId, date: today, check_in: now },
+      { user_id: session.userId, date: today, check_in: now, pod },
       { onConflict: 'user_id,date' }
     )
     .select()

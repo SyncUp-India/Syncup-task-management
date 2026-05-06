@@ -78,7 +78,42 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  /* ── 2. Timesheet cleanup: delete entries older than 2 months ── */
+  /* ── 2. Monthly leave credit (0.5 sick + 1.0 privilege on 1st of month) ── */
+  const isFirstOfMonth = new Date().getDate() === 1
+  if (isFirstOfMonth) {
+    const currentYear = new Date().getFullYear()
+    const { data: activeUsers } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('active', true)
+
+    if (activeUsers) {
+      for (const u of activeUsers) {
+        const { data: bal } = await supabaseAdmin
+          .from('leave_balances')
+          .select('*')
+          .eq('user_id', u.id)
+          .eq('year', currentYear)
+          .maybeSingle()
+
+        if (bal) {
+          await supabaseAdmin
+            .from('leave_balances')
+            .update({
+              sick_balance:      Math.min(6,  Number(bal.sick_balance)      + 0.5),
+              privilege_balance: Math.min(12, Number(bal.privilege_balance) + 1.0),
+            })
+            .eq('id', bal.id)
+        } else {
+          await supabaseAdmin
+            .from('leave_balances')
+            .insert({ user_id: u.id, year: currentYear, sick_balance: 0.5, privilege_balance: 1.0 })
+        }
+      }
+    }
+  }
+
+  /* ── 3. Timesheet cleanup: delete entries older than 2 months ── */
   const cutoff = new Date();
   cutoff.setDate(1);
   cutoff.setMonth(cutoff.getMonth() - 2);
@@ -90,9 +125,10 @@ export async function GET(req: NextRequest) {
     .lt('date', cutoffDate);
 
   return NextResponse.json({
-    ok:          true,
-    overdue:     tasks?.length ?? 0,
-    escalated:   escalations.length,
-    tsDeleted:   deletedTs ?? 0,
+    ok:            true,
+    overdue:       tasks?.length ?? 0,
+    escalated:     escalations.length,
+    leavesCredited: isFirstOfMonth,
+    tsDeleted:     deletedTs ?? 0,
   });
 }

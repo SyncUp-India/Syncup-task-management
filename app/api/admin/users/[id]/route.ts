@@ -15,18 +15,14 @@ export async function PATCH(
   const body = await request.json()
   const updates: Record<string, unknown> = {}
 
-  if (body.name !== undefined) updates.name = body.name.trim()
-  if (body.email !== undefined) updates.email = body.email.toLowerCase().trim()
+  if (body.name       !== undefined) updates.name       = body.name.trim()
+  if (body.email      !== undefined) updates.email      = body.email.toLowerCase().trim()
   if (body.recovery_email !== undefined) {
     updates.recovery_email = body.recovery_email?.toLowerCase().trim() || null
   }
-  if (body.department !== undefined) {
-    updates.department = body.department
-    // Keep role in sync with department
-    updates.role = body.department === 'admin' ? 'admin' : 'user'
-  }
-  if (body.role !== undefined && body.department === undefined) updates.role = body.role
-  if (body.active !== undefined) updates.active = body.active
+  if (body.department !== undefined) updates.department = body.department
+  if (body.role       !== undefined) updates.role       = body.role // explicit role, independent of department
+  if (body.active     !== undefined) updates.active     = body.active
   if (body.password) updates.password_hash = await hashPassword(body.password)
 
   const { data, error } = await supabaseAdmin
@@ -53,11 +49,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'You cannot delete your own account' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin
-    .from('users')
-    .delete()
-    .eq('id', params.id)
-
+  const { error } = await supabaseAdmin.from('users').delete().eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

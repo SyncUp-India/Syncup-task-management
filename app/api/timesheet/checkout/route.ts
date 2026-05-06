@@ -8,6 +8,9 @@ export async function POST(req: NextRequest) {
 
   const today = new Date().toISOString().slice(0, 10)
 
+  const body = await req.json().catch(() => ({}))
+  const eod  = body.eod?.trim() || null
+
   const { data: existing, error: fetchErr } = await supabaseAdmin
     .from('timesheets')
     .select('id, check_in, check_out')
@@ -25,7 +28,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('timesheets')
-    .update({ check_out: new Date().toISOString() })
+    .update({ check_out: new Date().toISOString(), eod })
     .eq('id', existing.id)
     .select()
     .single()
