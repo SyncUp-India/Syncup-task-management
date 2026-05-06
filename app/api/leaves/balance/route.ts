@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSessionFromRequest } from '@/lib/auth'
 
-export const SICK_MAX = 6
-export const PRIVILEGE_MAX = 12
+const SICK_MAX = 6
+const PRIVILEGE_MAX = 12
 
 export async function GET(req: NextRequest) {
   const session = await getSessionFromRequest(req)
