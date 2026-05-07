@@ -11,7 +11,7 @@ function countWorkingDays(start: string, end: string): number {
   const cur = new Date(s)
   while (cur <= e) {
     const d = cur.getDay()
-    if (d !== 0 && d !== 6) count++
+    if (d !== 0) count++ // Mon–Sat working week
     cur.setDate(cur.getDate() + 1)
   }
   return count

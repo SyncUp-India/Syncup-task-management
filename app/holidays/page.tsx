@@ -44,7 +44,7 @@ function MonthMini({
           const holidays = holidaysByDate.get(dateStr) || []
           const isHoliday = holidays.length > 0
           const isToday   = dateStr === today
-          const isWeekend = new Date(year, month - 1, d).getDay() % 6 === 0
+          const isWeekend = new Date(year, month - 1, d).getDay() === 0 // only Sunday
           const title = holidays.map((h: any) => h.name).join(', ')
 
           return (

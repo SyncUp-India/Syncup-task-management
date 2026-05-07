@@ -105,7 +105,7 @@ function AttendanceCalendar({
           const isToday  = dateStr === today
           const isFuture = dateStr > today
           const dow      = new Date(year, month - 1, d).getDay()
-          const isWknd   = dow === 0 || dow === 6
+          const isWknd   = dow === 0 // only Sunday is non-working
           const entry    = entryByDate.get(dateStr)
           const pub      = pubHoliByDate.get(dateStr)
 
@@ -311,7 +311,7 @@ export default function TimesheetPage() {
     let count = 0
     for (let d = 1; d <= endDay; d++) {
       const dow = new Date(y, m - 1, d).getDay()
-      if (dow !== 0 && dow !== 6) count++
+      if (dow !== 0) count++ // Mon–Sat working week
     }
     return count
   }, [thisMonth])

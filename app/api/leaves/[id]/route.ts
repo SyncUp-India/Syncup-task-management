@@ -90,5 +90,24 @@ export async function DELETE(
   }
 
   await supabaseAdmin.from('leave_requests').delete().eq('id', id)
+
+  // If an approved leave is cancelled, credit the days back
+  if (request.status === 'approved') {
+    const year = new Date(request.start_date).getFullYear()
+    const usedField = request.leave_type === 'sick' ? 'sick_used' : 'privilege_used'
+    const { data: bal } = await supabaseAdmin
+      .from('leave_balances')
+      .select('*')
+      .eq('user_id', request.user_id)
+      .eq('year', year)
+      .maybeSingle()
+    if (bal) {
+      await supabaseAdmin
+        .from('leave_balances')
+        .update({ [usedField]: Math.max(0, Number(bal[usedField]) - Number(request.days)) })
+        .eq('id', bal.id)
+    }
+  }
+
   return NextResponse.json({ ok: true })
 }
