@@ -19,9 +19,9 @@ export async function GET(req: NextRequest) {
     .maybeSingle()
 
   if (!data) {
-    // For 2026: 4 months already elapsed (Jan–Apr), so seed with accrued credits
-    const initialSick      = year === 2026 ? 2.0 : 0
-    const initialPrivilege = year === 2026 ? 4.0 : 0
+    // For 2026: Jan–Apr forfeited; seed with May's credit (0.5 sick + 1.0 privilege)
+    const initialSick      = year === 2026 ? 0.5 : 0
+    const initialPrivilege = year === 2026 ? 1.0 : 0
     const { data: created } = await supabaseAdmin
       .from('leave_balances')
       .insert({ user_id: session.userId, year, sick_balance: initialSick, privilege_balance: initialPrivilege })
