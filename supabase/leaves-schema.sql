@@ -34,11 +34,9 @@ INSERT INTO public_holidays (date, name, type) VALUES
   ('2026-05-01', 'International Labour Day',   'national'),
   ('2026-05-04', 'Buddha Purnima',             'national'),
   ('2026-08-15', 'Independence Day',           'national'),
-  ('2026-08-23', 'Janmashtami',                'national'),
   ('2026-10-02', 'Gandhi Jayanti',             'national'),
   ('2026-10-21', 'Dussehra (Vijayadashami)',   'national'),
   ('2026-10-31', 'Diwali (Lakshmi Puja)',      'national'),
-  ('2026-11-13', 'Guru Nanak Jayanti',         'national'),
   ('2026-12-25', 'Christmas Day',              'national')
 ON CONFLICT (date, name) DO NOTHING;
 
