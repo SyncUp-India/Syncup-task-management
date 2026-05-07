@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const wb = XLSX.read(buffer, { type: 'buffer' })
 
     // Get members for name-to-id lookup
-    const { data: members } = await supabaseAdmin.from('members').select('id, name')
+    const { data: members } = await supabaseAdmin.from('users').select('id, name').eq('active', true)
     const memberMap: Record<string, string> = {}
     for (const m of members || []) memberMap[m.name.toLowerCase().trim()] = m.id
 

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   /* ── 1. Overdue task escalations + email alerts ── */
   const { data: tasks } = await supabaseAdmin
     .from('tasks')
-    .select('*, members:assignee_id(name, email, slack_user_id)')
+    .select('*, assignee:assignee_id(name, email, slack_user_id)')
     .lt('due_date', today)
     .not('status', 'eq', 'done');
 
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
           .update({ escalation_level: level, last_escalated_at: new Date().toISOString() })
           .eq('id', t.id);
 
-        const assignee = t.members?.name || 'unassigned';
+        const assignee = t.assignee?.name || 'unassigned';
         let slackMsg = '';
         if (level === 1) slackMsg = `⚠️ Task #${t.id} "${t.title}" is 1+ day overdue. Assignee: ${assignee}`;
         else if (level === 2) slackMsg = `🔶 Task #${t.id} "${t.title}" is 3+ days overdue — flagging to manager. Assignee: ${assignee}`;
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
         await sendSlack(slackMsg);
 
         // Send email to assignee if they have an email
-        if (t.members?.email) {
+        if (t.assignee?.email) {
           const subject = level === 3
             ? `🔴 CRITICAL: Task "${t.title}" is ${daysOverdue} days overdue`
             : level === 2
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
             : `⚠️ Task "${t.title}" is overdue`;
 
           await sendEmail({
-            to:      t.members.email,
+            to:      t.assignee.email,
             subject,
             html:    overdueTaskHtml({ task: t, assigneeName: assignee, daysOverdue }),
           }).catch(err => console.error('[email error]', err));

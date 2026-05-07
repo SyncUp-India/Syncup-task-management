@@ -6,7 +6,8 @@
       "Bash(npm install *)",
       "Bash(mkdir -p \"c:\\\\Users\\\\MY PC\\\\Downloads\\\\team-board-v2\\\\team-board-v2\\\\app\\\\api\\\\leaves\\\\[id]\" 2>/dev/null; echo \"done\")",
       "Bash(mkdir -p \"c:\\\\Users\\\\MY PC\\\\Downloads\\\\team-board-v2\\\\team-board-v2\\\\app\\\\api\\\\admin\\\\departments\\\\[id]\" 2>/dev/null; echo \"ok\")",
-      "Bash(\"\\\\\\\\?\\\\\" + \\(Get-Location\\).Path + \"\\\\nul\"\\) && echo \"deleted\")"
+      "Bash(\"\\\\\\\\?\\\\\" + \\(Get-Location\\).Path + \"\\\\nul\"\\) && echo \"deleted\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\MY PC\\\\Downloads\\\\team-board-v2\\\\team-board-v2\" -Force)"
     ],
     "additionalDirectories": [
       "c:\\Users\\MY PC\\Downloads\\team-board-v2\\team-board-v2\\app\\api\\leaves",
