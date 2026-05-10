@@ -167,6 +167,9 @@ export default function TimesheetPage() {
   const [showEOD, setShowEOD] = useState(false)
   const [eodText, setEodText] = useState('')
 
+  // POD/EOD detail viewer
+  const [viewEntry, setViewEntry] = useState<any>(null)
+
   // Manual entry modal
   const [showManual,   setShowManual]   = useState(false)
   const [manual,       setManual]       = useState(() => emptyManual(todayStr))
@@ -548,10 +551,19 @@ export default function TimesheetPage() {
                         <span className="tb-chip" style={{ background: 'rgba(244,63,94,0.1)', color: 'var(--rose)' }}>Absent</span>
                       )}
                     </td>
-                    <td style={{ padding: '0.875rem 1rem', maxWidth: '200px' }}>
-                      {e.pod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📋 {e.pod}</p>}
-                      {e.eod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 {e.eod}</p>}
-                      {!e.pod && !e.eod && <span style={{ fontSize: '0.75rem', opacity: 0.35, color: 'var(--muted)' }}>—</span>}
+                    <td style={{ padding: '0.875rem 1rem', maxWidth: '220px' }}>
+                      {(e.pod || e.eod) ? (
+                        <button
+                          onClick={() => setViewEntry(e)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                        >
+                          {e.pod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📋 {e.pod}</p>}
+                          {e.eod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 {e.eod}</p>}
+                          <span style={{ fontSize: '0.625rem', color: 'var(--accent)', marginTop: '2px', display: 'block' }}>tap to expand</span>
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: '0.75rem', opacity: 0.35, color: 'var(--muted)' }}>—</span>
+                      )}
                     </td>
                   </tr>
                 )
@@ -560,6 +572,43 @@ export default function TimesheetPage() {
           </table>
         )}
       </div>
+
+      {/* ── POD/EOD Detail viewer ── */}
+      {viewEntry && (
+        <div className="tb-modal-bg" onClick={() => setViewEntry(null)}>
+          <div className="tb-modal" style={{ width: '100%', maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <h2 style={{ fontSize: '1rem', fontWeight: '600', margin: 0 }}>{fmtDate(viewEntry.date)}</h2>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '2px' }}>
+                  {fmtTime(viewEntry.check_in)} – {viewEntry.check_out ? fmtTime(viewEntry.check_out) : 'ongoing'}
+                  {viewEntry.user?.name && ` · ${viewEntry.user.name}`}
+                </p>
+              </div>
+              <button onClick={() => setViewEntry(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: '1.25rem', lineHeight: 1, padding: '0 4px' }}>×</button>
+            </div>
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {viewEntry.pod ? (
+                <div>
+                  <p style={{ fontSize: '0.6875rem', fontWeight: '700', color: 'var(--emerald)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>📋 Plan of Day</p>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{viewEntry.pod}</p>
+                </div>
+              ) : (
+                <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', fontStyle: 'italic' }}>No POD submitted</p>
+              )}
+              <div style={{ height: '1px', background: 'var(--border)' }} />
+              {viewEntry.eod ? (
+                <div>
+                  <p style={{ fontSize: '0.6875rem', fontWeight: '700', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>📝 End of Day</p>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{viewEntry.eod}</p>
+                </div>
+              ) : (
+                <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', fontStyle: 'italic' }}>No EOD submitted</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── POD Modal ── */}
       {showPOD && (

@@ -113,7 +113,38 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  /* ── 3. Timesheet cleanup: delete entries older than 2 months ── */
+  /* ── 3. EOD / POD reminders via Slack ── */
+  const hour = new Date().getHours()
+  // Morning reminder (9–10 AM): who hasn't checked in yet
+  if (hour >= 9 && hour < 10) {
+    const { data: allUsers } = await supabaseAdmin.from('users').select('id, name').eq('active', true)
+    const { data: todayEntries } = await supabaseAdmin
+      .from('timesheets').select('user_id, pod').eq('date', today)
+    const checkedInIds = new Set((todayEntries || []).map((e: any) => e.user_id))
+    const missing = (allUsers || []).filter((u: any) => !checkedInIds.has(u.id))
+    if (missing.length > 0) {
+      await sendSlack(`⏰ *Morning check-in reminder* — ${missing.map((u: any) => u.name).join(', ')} haven't checked in yet today.`)
+    }
+  }
+  // Evening reminder (6–7 PM): who checked in but has no EOD
+  if (hour >= 18 && hour < 19) {
+    const { data: todayEntries } = await supabaseAdmin
+      .from('timesheets').select('user_id, check_in, check_out, eod, users!user_id(name)').eq('date', today)
+    const missingEOD = (todayEntries || []).filter((e: any) => e.check_in && !e.eod)
+    if (missingEOD.length > 0) {
+      const names = missingEOD.map((e: any) => e.users?.name || 'Unknown').join(', ')
+      await sendSlack(`📝 *EOD reminder* — ${names} checked in but haven't submitted their End of Day report yet.`)
+    }
+    // Also flag who didn't check in at all
+    const { data: allUsers } = await supabaseAdmin.from('users').select('id, name').eq('active', true)
+    const checkedInIds = new Set((todayEntries || []).map((e: any) => e.user_id))
+    const absent = (allUsers || []).filter((u: any) => !checkedInIds.has(u.id))
+    if (absent.length > 0) {
+      await sendSlack(`🚨 *No check-in today* — ${absent.map((u: any) => u.name).join(', ')} have no timesheet entry for today.`)
+    }
+  }
+
+  /* ── 4. Timesheet cleanup: delete entries older than 2 months ── */
   const cutoff = new Date();
   cutoff.setDate(1);
   cutoff.setMonth(cutoff.getMonth() - 2);
@@ -129,6 +160,6 @@ export async function GET(req: NextRequest) {
     overdue:       tasks?.length ?? 0,
     escalated:     escalations.length,
     leavesCredited: isFirstOfMonth,
-    tsDeleted:     deletedTs ?? 0,
+    tsDeleted:      deletedTs ?? 0,
   });
 }

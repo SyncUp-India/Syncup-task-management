@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { date, check_in, check_out, is_holiday, holiday_reason, notes } = body
+  const { date, check_in, check_out, is_holiday, holiday_reason, notes, pod, eod } = body
 
   if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
 
@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
         is_holiday:     is_holiday     ?? false,
         holiday_reason: holiday_reason || null,
         notes:          notes          || null,
+        pod:            pod            || null,
+        eod:            eod            || null,
       },
       { onConflict: 'user_id,date' }
     )
