@@ -37,15 +37,10 @@ export async function POST(req: NextRequest) {
   const action = payload.action;
   const pr = payload.pull_request;
 
-  console.log(`[webhook] PR action="${action}" title="${pr?.title}"`);
-
   // Find TASK-### reference in title or body
   const text = `${pr.title} ${pr.body || ''}`;
   const match = text.match(/TASK-(\d+)/i);
-  if (!match) {
-    console.log(`[webhook] No TASK-### found in: "${text.slice(0, 120)}"`);
-    return NextResponse.json({ ok: true, noMatch: true });
-  }
+  if (!match) return NextResponse.json({ ok: true, noMatch: true });
 
   const taskId = parseInt(match[1]);
   const prUrl = pr.html_url;
@@ -78,12 +73,8 @@ export async function POST(req: NextRequest) {
     .select()
     .maybeSingle();
 
-  console.log(`[webhook] DB update taskId=${taskId} status=${newTaskStatus} found=${!!task} error=${error?.message}`);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!task) {
-    console.log(`[webhook] Task #${taskId} not found — check the ID on your board`);
-    return NextResponse.json({ ok: false, error: `Task #${taskId} not found` }, { status: 404 });
-  }
+  if (!task) return NextResponse.json({ ok: false, error: `Task #${taskId} not found` }, { status: 404 });
 
   await supabaseAdmin.from('activity_log').insert({
     task_id: taskId,

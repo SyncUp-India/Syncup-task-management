@@ -67,9 +67,6 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error('Email send error:', err)
     }
-  } else {
-    // Dev mode: log and expose the URL in the response
-    console.log(`\n🔐 Password reset link for ${email}:\n${resetUrl}\n`)
   }
 
   return NextResponse.json({
