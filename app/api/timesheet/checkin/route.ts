@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSessionFromRequest } from '@/lib/auth'
+import { sendSlack } from '@/lib/slack'
 
 export async function POST(req: NextRequest) {
   const session = await getSessionFromRequest(req)
@@ -33,5 +34,11 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const timeStr = new Date(now).toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
+  })
+  sendSlack(`✅ *${session.name}* checked in at *${timeStr}*${pod ? `\n📋 *POD:* ${pod}` : ''}`)
+
   return NextResponse.json({ entry: data })
 }

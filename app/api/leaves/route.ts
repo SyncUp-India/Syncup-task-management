@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSessionFromRequest } from '@/lib/auth'
+import { sendSlack } from '@/lib/slack'
 
 function countWorkingDays(start: string, end: string): number {
   const s = new Date(start + 'T00:00:00')
@@ -118,5 +119,13 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const leaveEmoji = leave_type === 'sick' ? '🤒' : '🌴'
+  sendSlack(
+    `${leaveEmoji} *${session.name}* applied for *${leave_type} leave*\n` +
+    `📅 ${start_date} → ${end_date} (${days} working day${days !== 1 ? 's' : ''})\n` +
+    `${reason ? `💬 ${reason}` : ''}`
+  )
+
   return NextResponse.json({ request: data }, { status: 201 })
 }

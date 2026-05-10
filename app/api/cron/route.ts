@@ -3,13 +3,113 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { sendSlack } from '@/lib/slack';
 import { sendEmail, overdueTaskHtml } from '@/lib/email';
 
+const STATUS_LABEL: Record<string, string> = {
+  todo: 'To Do', inprogress: 'In Progress', review: 'In Review', done: 'Done', blocked: 'Blocked',
+};
+const STATUS_EMOJI: Record<string, string> = {
+  todo: '⏳', inprogress: '🔵', review: '🟡', done: '✅', blocked: '🔴',
+};
+
+async function sendEveningReport(today: string) {
+  /* ── Attendance ── */
+  const { data: allUsers } = await supabaseAdmin
+    .from('users').select('id, name').eq('active', true);
+
+  const { data: todayEntries } = await supabaseAdmin
+    .from('timesheets')
+    .select('user_id, check_in, check_out, pod, eod')
+    .eq('date', today);
+
+  const entryMap = new Map((todayEntries || []).map((e: any) => [e.user_id, e]));
+  const checkedIn:  string[] = [];
+  const absent:     string[] = [];
+  const missingEOD: string[] = [];
+
+  for (const u of (allUsers || [])) {
+    const entry = entryMap.get(u.id);
+    if (!entry?.check_in) {
+      absent.push(u.name);
+    } else {
+      checkedIn.push(u.name);
+      if (!entry.eod) missingEOD.push(u.name);
+    }
+  }
+
+  /* ── Status changes today ── */
+  const todayStart = `${today}T00:00:00.000Z`;
+  const { data: statusChanges } = await supabaseAdmin
+    .from('activity_log')
+    .select('task_id, details, tasks!task_id(title)')
+    .eq('action', 'updated')
+    .gte('created_at', todayStart)
+    .not('details->>status', 'is', null);
+
+  /* ── Pending tasks (not done) ── */
+  const { data: pendingTasks } = await supabaseAdmin
+    .from('tasks')
+    .select('id, title, status, assignee:assignee_id(name)')
+    .in('status', ['todo', 'inprogress', 'review', 'blocked'])
+    .order('status');
+
+  /* ── Build message ── */
+  const lines: string[] = [`📋 *Daily Report — ${today}*`];
+
+  // Attendance block
+  lines.push('');
+  lines.push('*👥 Attendance*');
+  if (checkedIn.length > 0) lines.push(`✅ Checked in (${checkedIn.length}): ${checkedIn.join(', ')}`);
+  if (absent.length > 0)    lines.push(`❌ Absent (${absent.length}): ${absent.join(', ')}`);
+  if (missingEOD.length > 0) lines.push(`📝 EOD pending: ${missingEOD.join(', ')}`);
+  if (checkedIn.length === 0 && absent.length === 0) lines.push('No timesheet data for today.');
+
+  // Status changes block
+  if (statusChanges && statusChanges.length > 0) {
+    lines.push('');
+    lines.push('*🔄 Status Changes Today*');
+    for (const c of statusChanges) {
+      const title = (c.tasks as any)?.title || `Task #${c.task_id}`;
+      const newStatus = (c.details as any)?.status;
+      const emoji = STATUS_EMOJI[newStatus] || '🔄';
+      lines.push(`${emoji} "${title}" → *${STATUS_LABEL[newStatus] || newStatus}*`);
+    }
+  }
+
+  // Pending tasks block
+  if (pendingTasks && pendingTasks.length > 0) {
+    lines.push('');
+    lines.push(`*⏳ Open Tasks (${pendingTasks.length})*`);
+    const byStatus: Record<string, typeof pendingTasks> = {};
+    for (const t of pendingTasks) {
+      if (!byStatus[t.status]) byStatus[t.status] = [];
+      byStatus[t.status].push(t);
+    }
+    for (const [status, items] of Object.entries(byStatus)) {
+      const emoji = STATUS_EMOJI[status] || '•';
+      lines.push(`${emoji} *${STATUS_LABEL[status]}* (${items.length}): ${items.map((t: any) => `"${t.title}"${t.assignee ? ` [${t.assignee.name}]` : ''}`).join(', ')}`);
+    }
+  }
+
+  await sendSlack(lines.join('\n'));
+}
+
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization');
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const nowIST  = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const isSunday = nowIST.getUTCDay() === 0;
+  const today   = nowIST.toISOString().slice(0, 10);
+  const hourIST = nowIST.getUTCHours();
+
+  // On Sundays only send the 8 PM report — skip escalations and leave credits
+  if (isSunday) {
+    if (hourIST >= 20 && hourIST < 21) {
+      await sendEveningReport(today);
+    }
+    return NextResponse.json({ ok: true, sunday: true, date: today });
+  }
 
   /* ── 1. Overdue task escalations + email alerts ── */
   const { data: tasks } = await supabaseAdmin
@@ -22,8 +122,16 @@ export async function GET(req: NextRequest) {
 
   if (tasks && tasks.length > 0) {
     for (const t of tasks) {
-      const dueDate   = new Date(t.due_date);
-      const daysOverdue = Math.floor((Date.now() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      const dueDate     = new Date(t.due_date);
+      const daysOverdue = Math.floor((Date.now() - dueDate.getTime()) / 86400000);
+
+      // Alert on large tasks (est_hours >= 8) that are overdue
+      if ((t.est_hours ?? 0) >= 8) {
+        const assignee = t.assignee?.name || 'Unassigned';
+        await sendSlack(
+          `🔔 *Big task overdue* — Task #${t.id} "${t.title}" (${t.est_hours}h estimated) is ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} overdue. Assignee: ${assignee}`
+        );
+      }
 
       let level = 0;
       if (daysOverdue >= 7) level = 3;
@@ -44,7 +152,6 @@ export async function GET(req: NextRequest) {
 
         await sendSlack(slackMsg);
 
-        // Send email to assignee if they have an email
         if (t.assignee?.email) {
           const subject = level === 3
             ? `🔴 CRITICAL: Task "${t.title}" is ${daysOverdue} days overdue`
@@ -53,9 +160,9 @@ export async function GET(req: NextRequest) {
             : `⚠️ Task "${t.title}" is overdue`;
 
           await sendEmail({
-            to:      t.assignee.email,
+            to:   t.assignee.email,
             subject,
-            html:    overdueTaskHtml({ task: t, assigneeName: assignee, daysOverdue }),
+            html: overdueTaskHtml({ task: t, assigneeName: t.assignee.name, daysOverdue }),
           }).catch(err => console.error('[email error]', err));
         }
 
@@ -64,8 +171,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Weekly digest (Mondays)
-    const isMonday = new Date().getDay() === 1;
-    if (isMonday) {
+    if (nowIST.getUTCDay() === 1) {
       const { count: total } = await supabaseAdmin.from('tasks').select('*', { count: 'exact', head: true });
       const { count: done  } = await supabaseAdmin
         .from('tasks')
@@ -73,19 +179,16 @@ export async function GET(req: NextRequest) {
         .eq('status', 'done')
         .gte('completed_at', new Date(Date.now() - 7 * 86400000).toISOString());
       await sendSlack(
-        `📊 Weekly digest: ${done ?? 0} tasks completed last week · ${tasks.length} currently overdue · ${total ?? 0} total tasks`
+        `📊 *Weekly digest* — ${done ?? 0} tasks completed last week · ${tasks.length} currently overdue · ${total ?? 0} total tasks`
       );
     }
   }
 
   /* ── 2. Monthly leave credit (0.5 sick + 1.0 privilege on 1st of month) ── */
-  const isFirstOfMonth = new Date().getDate() === 1
+  const isFirstOfMonth = nowIST.getUTCDate() === 1;
   if (isFirstOfMonth) {
-    const currentYear = new Date().getFullYear()
-    const { data: activeUsers } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .eq('active', true)
+    const currentYear = nowIST.getUTCFullYear();
+    const { data: activeUsers } = await supabaseAdmin.from('users').select('id').eq('active', true);
 
     if (activeUsers) {
       for (const u of activeUsers) {
@@ -94,7 +197,7 @@ export async function GET(req: NextRequest) {
           .select('*')
           .eq('user_id', u.id)
           .eq('year', currentYear)
-          .maybeSingle()
+          .maybeSingle();
 
         if (bal) {
           await supabaseAdmin
@@ -103,45 +206,19 @@ export async function GET(req: NextRequest) {
               sick_balance:      Math.min(6,  Number(bal.sick_balance)      + 0.5),
               privilege_balance: Math.min(12, Number(bal.privilege_balance) + 1.0),
             })
-            .eq('id', bal.id)
+            .eq('id', bal.id);
         } else {
           await supabaseAdmin
             .from('leave_balances')
-            .insert({ user_id: u.id, year: currentYear, sick_balance: 0.5, privilege_balance: 1.0 })
+            .insert({ user_id: u.id, year: currentYear, sick_balance: 0.5, privilege_balance: 1.0 });
         }
       }
     }
   }
 
-  /* ── 3. EOD / POD reminders via Slack ── */
-  const hour = new Date().getHours()
-  // Morning reminder (9–10 AM): who hasn't checked in yet
-  if (hour >= 9 && hour < 10) {
-    const { data: allUsers } = await supabaseAdmin.from('users').select('id, name').eq('active', true)
-    const { data: todayEntries } = await supabaseAdmin
-      .from('timesheets').select('user_id, pod').eq('date', today)
-    const checkedInIds = new Set((todayEntries || []).map((e: any) => e.user_id))
-    const missing = (allUsers || []).filter((u: any) => !checkedInIds.has(u.id))
-    if (missing.length > 0) {
-      await sendSlack(`⏰ *Morning check-in reminder* — ${missing.map((u: any) => u.name).join(', ')} haven't checked in yet today.`)
-    }
-  }
-  // Evening reminder (6–7 PM): who checked in but has no EOD
-  if (hour >= 18 && hour < 19) {
-    const { data: todayEntries } = await supabaseAdmin
-      .from('timesheets').select('user_id, check_in, check_out, eod, users!user_id(name)').eq('date', today)
-    const missingEOD = (todayEntries || []).filter((e: any) => e.check_in && !e.eod)
-    if (missingEOD.length > 0) {
-      const names = missingEOD.map((e: any) => e.users?.name || 'Unknown').join(', ')
-      await sendSlack(`📝 *EOD reminder* — ${names} checked in but haven't submitted their End of Day report yet.`)
-    }
-    // Also flag who didn't check in at all
-    const { data: allUsers } = await supabaseAdmin.from('users').select('id, name').eq('active', true)
-    const checkedInIds = new Set((todayEntries || []).map((e: any) => e.user_id))
-    const absent = (allUsers || []).filter((u: any) => !checkedInIds.has(u.id))
-    if (absent.length > 0) {
-      await sendSlack(`🚨 *No check-in today* — ${absent.map((u: any) => u.name).join(', ')} have no timesheet entry for today.`)
-    }
+  /* ── 3. Evening report at 8 PM IST ── */
+  if (hourIST >= 20 && hourIST < 21) {
+    await sendEveningReport(today);
   }
 
   /* ── 4. Timesheet cleanup: delete entries older than 2 months ── */
@@ -156,9 +233,10 @@ export async function GET(req: NextRequest) {
     .lt('date', cutoffDate);
 
   return NextResponse.json({
-    ok:            true,
-    overdue:       tasks?.length ?? 0,
-    escalated:     escalations.length,
+    ok:             true,
+    date:           today,
+    overdue:        tasks?.length ?? 0,
+    escalated:      escalations.length,
     leavesCredited: isFirstOfMonth,
     tsDeleted:      deletedTs ?? 0,
   });
