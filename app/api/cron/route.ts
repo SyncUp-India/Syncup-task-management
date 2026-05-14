@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendSlack } from '@/lib/slack';
+import { sendSlack, sendAttendanceSlack, sendSlackToDept } from '@/lib/slack';
 import { sendEmail, overdueTaskHtml } from '@/lib/email';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -13,7 +13,7 @@ const STATUS_EMOJI: Record<string, string> = {
 async function sendEveningReport(today: string) {
   /* ── Attendance ── */
   const { data: allUsers } = await supabaseAdmin
-    .from('users').select('id, name').eq('active', true);
+    .from('users').select('id, name, department').eq('active', true);
 
   const { data: todayEntries } = await supabaseAdmin
     .from('timesheets')
@@ -21,16 +21,28 @@ async function sendEveningReport(today: string) {
     .eq('date', today);
 
   const entryMap = new Map((todayEntries || []).map((e: any) => [e.user_id, e]));
+
+  /* ── Who's on approved leave today ── */
+  const { data: onLeave } = await supabaseAdmin
+    .from('leave_requests')
+    .select('user_id, leave_type, users!user_id(name, department)')
+    .eq('status', 'approved')
+    .lte('start_date', today)
+    .gte('end_date', today);
+  const onLeaveIds = new Set((onLeave || []).map((l: any) => l.user_id));
+
   const checkedIn:  string[] = [];
   const absent:     string[] = [];
   const missingEOD: string[] = [];
 
   for (const u of (allUsers || [])) {
+    if (onLeaveIds.has(u.id)) continue; // skip — they're on leave
     const entry = entryMap.get(u.id);
+    const tag   = u.department ? ` [${u.department}]` : '';
     if (!entry?.check_in) {
-      absent.push(u.name);
+      absent.push(`${u.name}${tag}`);
     } else {
-      checkedIn.push(u.name);
+      checkedIn.push(`${u.name}${tag}`);
       if (!entry.eod) missingEOD.push(u.name);
     }
   }
@@ -47,12 +59,23 @@ async function sendEveningReport(today: string) {
   /* ── Pending tasks (not done) ── */
   const { data: pendingTasks } = await supabaseAdmin
     .from('tasks')
-    .select('id, title, status, assignee:assignee_id(name)')
+    .select('id, title, status, in_review_at, assignee:assignee_id(name)')
     .in('status', ['todo', 'inprogress', 'review', 'blocked'])
     .order('status');
 
   /* ── Build message ── */
   const lines: string[] = [`📋 *Daily Report — ${today}*`];
+
+  // On leave today
+  if (onLeave && onLeave.length > 0) {
+    const names = onLeave.map((l: any) => {
+      const u = l.users as any;
+      const dept = u?.department ? ` [${u.department}]` : '';
+      return `${u?.name || '?'}${dept} (${l.leave_type})`;
+    });
+    lines.push('');
+    lines.push(`🌴 *On Leave (${onLeave.length}):* ${names.join(', ')}`);
+  }
 
   // Attendance block
   lines.push('');
@@ -60,16 +83,16 @@ async function sendEveningReport(today: string) {
   if (checkedIn.length > 0) lines.push(`✅ Checked in (${checkedIn.length}): ${checkedIn.join(', ')}`);
   if (absent.length > 0)    lines.push(`❌ Absent (${absent.length}): ${absent.join(', ')}`);
   if (missingEOD.length > 0) lines.push(`📝 EOD pending: ${missingEOD.join(', ')}`);
-  if (checkedIn.length === 0 && absent.length === 0) lines.push('No timesheet data for today.');
+  if (checkedIn.length === 0 && absent.length === 0 && onLeave?.length === 0) lines.push('No timesheet data for today.');
 
   // Status changes block
   if (statusChanges && statusChanges.length > 0) {
     lines.push('');
     lines.push('*🔄 Status Changes Today*');
     for (const c of statusChanges) {
-      const title = (c.tasks as any)?.title || `Task #${c.task_id}`;
+      const title     = (c.tasks as any)?.title || `Task #${c.task_id}`;
       const newStatus = (c.details as any)?.status;
-      const emoji = STATUS_EMOJI[newStatus] || '🔄';
+      const emoji     = STATUS_EMOJI[newStatus] || '🔄';
       lines.push(`${emoji} "${title}" → *${STATUS_LABEL[newStatus] || newStatus}*`);
     }
   }
@@ -85,11 +108,22 @@ async function sendEveningReport(today: string) {
     }
     for (const [status, items] of Object.entries(byStatus)) {
       const emoji = STATUS_EMOJI[status] || '•';
-      lines.push(`${emoji} *${STATUS_LABEL[status]}* (${items.length}): ${items.map((t: any) => `"${t.title}"${t.assignee ? ` [${t.assignee.name}]` : ''}`).join(', ')}`);
+      if (status === 'review') {
+        lines.push(`${emoji} *${STATUS_LABEL[status]}* (${items.length}) — pending review:`);
+        for (const t of items as any[]) {
+          const hrs = t.in_review_at
+            ? ((Date.now() - new Date(t.in_review_at).getTime()) / 3600000).toFixed(1)
+            : '?';
+          const who = t.assignee?.name || 'Unassigned';
+          lines.push(`  › "${t.title}" — *${hrs}h in review* [${who}]`);
+        }
+      } else {
+        lines.push(`${emoji} *${STATUS_LABEL[status]}* (${items.length}): ${items.map((t: any) => `"${t.title}"${t.assignee ? ` [${t.assignee.name}]` : ''}`).join(', ')}`);
+      }
     }
   }
 
-  await sendSlack(lines.join('\n'));
+  await sendAttendanceSlack(lines.join('\n'));
 }
 
 export async function GET(req: NextRequest) {
@@ -184,10 +218,45 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  /* ── 2. Monthly leave credit (0.5 sick + 1.0 privilege on 1st of month) ── */
+  /* ── 2. Monthly leave credit + attendance recap (1st of month) ── */
   const isFirstOfMonth = nowIST.getUTCDate() === 1;
   if (isFirstOfMonth) {
     const currentYear = nowIST.getUTCFullYear();
+
+    // Previous month working days and days-worked recap
+    const prevMonthDate = new Date(nowIST.getTime());
+    prevMonthDate.setUTCDate(0); // last day of previous month
+    const prevYear  = prevMonthDate.getUTCFullYear();
+    const prevMonth = prevMonthDate.getUTCMonth() + 1;
+    const prevYM    = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+    const daysInPrevMonth = new Date(prevYear, prevMonth, 0).getDate();
+
+    let workingDays = 0;
+    for (let d = 1; d <= daysInPrevMonth; d++) {
+      if (new Date(prevYear, prevMonth - 1, d).getDay() !== 0) workingDays++;
+    }
+
+    const { data: prevEntries } = await supabaseAdmin
+      .from('timesheets')
+      .select('user_id, check_in, users!user_id(name, department)')
+      .like('date', `${prevYM}-%`)
+      .not('check_in', 'is', null);
+
+    const byUser = new Map<string, { name: string; dept: string; days: number }>();
+    for (const e of (prevEntries || [])) {
+      const u = e.users as any;
+      const uid = e.user_id;
+      if (!byUser.has(uid)) byUser.set(uid, { name: u?.name || uid, dept: u?.department || '', days: 0 });
+      byUser.get(uid)!.days++;
+    }
+
+    const recapLines = [`📊 *Monthly Attendance Recap — ${prevYM}* (${workingDays} working days)`];
+    for (const [, info] of byUser) {
+      const tag = info.dept ? ` [${info.dept}]` : '';
+      recapLines.push(`• ${info.name}${tag}: ${info.days}/${workingDays} days`);
+    }
+    await sendAttendanceSlack(recapLines.join('\n'));
+
     const { data: activeUsers } = await supabaseAdmin.from('users').select('id').eq('active', true);
 
     if (activeUsers) {
@@ -216,12 +285,48 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  /* ── 3. Evening report at 8 PM IST ── */
+  /* ── 3. Assignee-estimate delay alerts ── */
+  const fourHoursAgo = new Date(Date.now() - 4 * 3600000).toISOString()
+  const { data: delayedTasks } = await supabaseAdmin
+    .from('tasks')
+    .select('id, title, expected_done_at, expected_hours_self, in_progress_at, department, delay_notified_at, assignee:assignee_id(name)')
+    .not('expected_done_at', 'is', null)
+    .lt('expected_done_at', new Date().toISOString())
+    .not('status', 'in', '("done","review")')
+
+  for (const t of (delayedTasks || [])) {
+    if (t.delay_notified_at && t.delay_notified_at > fourHoursAgo) continue // already notified recently
+    const overdue = ((Date.now() - new Date(t.expected_done_at).getTime()) / 3600000).toFixed(1)
+    const msg = `⏰ *Task #${t.id}* "${t.title}" is *${overdue}h past* the assignee's estimate of ${t.expected_hours_self}h.\nAssignee: ${(t.assignee as any)?.name || 'Unassigned'} — not in review yet.`
+    await sendSlackToDept(t.department, msg)
+    await supabaseAdmin.from('tasks').update({ delay_notified_at: new Date().toISOString() }).eq('id', t.id)
+  }
+
+  /* ── 4. Stalled review alerts (tasks in review > 24 h) ── */
+  const reviewCutoff     = new Date(Date.now() - 24 * 3600000).toISOString()
+  const fourHoursAgoRev  = new Date(Date.now() - 4  * 3600000).toISOString()
+  const { data: stalledReviews } = await supabaseAdmin
+    .from('tasks')
+    .select('id, title, in_review_at, department, review_notified_at, assignee:assignee_id(name)')
+    .eq('status', 'review')
+    .not('in_review_at', 'is', null)
+    .lt('in_review_at', reviewCutoff)
+
+  for (const t of (stalledReviews || [])) {
+    if (t.review_notified_at && t.review_notified_at > fourHoursAgoRev) continue
+    const hrs = ((Date.now() - new Date(t.in_review_at).getTime()) / 3600000).toFixed(1)
+    const assignee = (t.assignee as any)?.name || 'Unassigned'
+    const msg = `🔍 *Task #${t.id}* "${t.title}" has been *in review for ${hrs}h* — review may be stalled.\nAssignee: ${assignee}`
+    await sendSlackToDept(t.department, msg)
+    await supabaseAdmin.from('tasks').update({ review_notified_at: new Date().toISOString() }).eq('id', t.id)
+  }
+
+  /* ── 5. Evening report at 8 PM IST ── */
   if (hourIST >= 20 && hourIST < 21) {
     await sendEveningReport(today);
   }
 
-  /* ── 4. Timesheet cleanup: delete entries older than 2 months ── */
+  /* ── 6. Timesheet cleanup: delete entries older than 2 months ── */
   const cutoff = new Date();
   cutoff.setDate(1);
   cutoff.setMonth(cutoff.getMonth() - 2);

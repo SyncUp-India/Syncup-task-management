@@ -24,6 +24,12 @@ function calcMs(ci: string | null, co: string | null) {
   return new Date(co).getTime() - new Date(ci).getTime()
 }
 
+function entryMs(e: any) {
+  // Prefer server-computed total (supports multi-session days)
+  if (e.total_worked_seconds && e.total_worked_seconds > 0) return e.total_worked_seconds * 1000
+  return calcMs(e.check_in, e.check_out)
+}
+
 function fmtDuration(ms: number) {
   if (ms <= 0) return '—'
   const h = Math.floor(ms / 3600000)
@@ -175,7 +181,8 @@ export default function TimesheetPage() {
   const [manual,       setManual]       = useState(() => emptyManual(todayStr))
   const [savingManual, setSavingManual] = useState(false)
 
-  const timerRef = useRef<ReturnType<typeof setInterval>>()
+  const timerRef  = useRef<ReturnType<typeof setInterval>>()
+  const awayMsRef = useRef(0)
 
   /* ── data fetches ── */
   const loadToday = useCallback(async () => {
@@ -204,19 +211,52 @@ export default function TimesheetPage() {
 
   useEffect(() => { loadEntries() }, [loadEntries])
 
-  /* ── live timer ── */
+  /* ── live timer: continues on tab switch, stops accumulating when browser is closed ── */
   useEffect(() => {
     clearInterval(timerRef.current)
-    if (todayEntry?.check_in && !todayEntry.check_out) {
-      const start = new Date(todayEntry.check_in).getTime()
-      const tick = () => setElapsed(Date.now() - start)
-      tick(); timerRef.current = setInterval(tick, 1000)
-    } else if (todayEntry?.check_in && todayEntry.check_out) {
-      setElapsed(calcMs(todayEntry.check_in, todayEntry.check_out))
-    } else {
-      setElapsed(0)
+
+    if (todayEntry?.check_in && todayEntry.check_out) {
+      setElapsed((todayEntry.total_worked_seconds || 0) * 1000)
+      return
     }
-    return () => clearInterval(timerRef.current)
+
+    if (!todayEntry?.check_in) {
+      setElapsed(0)
+      return
+    }
+
+    // Active session
+    const entryId      = todayEntry.id
+    const sessionStart = new Date(todayEntry.check_in).getTime()
+    const totalBaseMs  = (todayEntry.total_worked_seconds || 0) * 1000
+    const closedKey    = `ts_closed_at_${entryId}`
+    const awayKey      = `ts_away_ms_${entryId}`
+
+    // Restore accumulated away-time from when the browser was closed
+    let savedAwayMs = parseInt(localStorage.getItem(awayKey) || '0', 10)
+    const closedAt  = localStorage.getItem(closedKey)
+    if (closedAt) {
+      savedAwayMs += Date.now() - parseInt(closedAt, 10)
+      localStorage.setItem(awayKey, String(savedAwayMs))
+      localStorage.removeItem(closedKey)
+    }
+    awayMsRef.current = savedAwayMs
+
+    const tick = () => setElapsed(totalBaseMs + Math.max(0, Date.now() - sessionStart - awayMsRef.current))
+    tick()
+    timerRef.current = setInterval(tick, 1000)
+
+    // Save close timestamp when browser/tab is closed
+    const onUnload = () => {
+      localStorage.setItem(awayKey, String(awayMsRef.current))
+      localStorage.setItem(closedKey, String(Date.now()))
+    }
+    window.addEventListener('beforeunload', onUnload)
+
+    return () => {
+      clearInterval(timerRef.current)
+      window.removeEventListener('beforeunload', onUnload)
+    }
   }, [todayEntry])
 
   /* ── check in (with POD) ── */
@@ -229,21 +269,39 @@ export default function TimesheetPage() {
     })
     const data = await res.json()
     if (!res.ok) { alert(data.error || 'Check-in failed') }
-    else { setTodayEntry(data.entry); loadEntries() }
+    else {
+      // Clear any stale away-time tracking for this entry (new session starts fresh)
+      if (data.entry?.id) {
+        localStorage.removeItem(`ts_away_ms_${data.entry.id}`)
+        localStorage.removeItem(`ts_closed_at_${data.entry.id}`)
+        awayMsRef.current = 0
+      }
+      setTodayEntry(data.entry)
+      loadEntries()
+    }
     setShowPOD(false); setPodText(''); setChecking(null)
   }
 
   /* ── check out (with EOD) ── */
   async function submitCheckOut() {
     setChecking('out')
+    const awaySecs = Math.floor(awayMsRef.current / 1000)
     const res = await fetch('/api/timesheet/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eod: eodText.trim() || null }),
+      body: JSON.stringify({ eod: eodText.trim() || null, away_seconds: awaySecs }),
     })
     const data = await res.json()
     if (!res.ok) { alert(data.error || 'Check-out failed') }
-    else { setTodayEntry(data.entry); loadEntries() }
+    else {
+      if (data.entry?.id) {
+        localStorage.removeItem(`ts_away_ms_${data.entry.id}`)
+        localStorage.removeItem(`ts_closed_at_${data.entry.id}`)
+        awayMsRef.current = 0
+      }
+      setTodayEntry(data.entry)
+      loadEntries()
+    }
     setShowEOD(false); setEodText(''); setChecking(null)
   }
 
@@ -301,7 +359,7 @@ export default function TimesheetPage() {
 
   const workedDays = statsEntries.filter(e => !e.is_holiday && e.check_in).length
   const leaveDays  = statsEntries.filter(e => e.is_holiday).length
-  const totalMs    = statsEntries.reduce((s, e) => s + calcMs(e.check_in, e.check_out), 0)
+  const totalMs    = statsEntries.reduce((s, e) => s + entryMs(e), 0)
   const totalHrs   = (totalMs / 3600000).toFixed(1)
   const avgHrs     = workedDays > 0 ? (totalMs / workedDays / 3600000).toFixed(1) : '0.0'
 
@@ -422,7 +480,7 @@ export default function TimesheetPage() {
                   <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
                     {fmtTime(todayEntry.check_in)} – {fmtTime(todayEntry.check_out)}
                     &nbsp;·&nbsp;
-                    <strong style={{ color: 'var(--ink)' }}>{fmtDuration(calcMs(todayEntry.check_in, todayEntry.check_out))}</strong>
+                    <strong style={{ color: 'var(--ink)' }}>{fmtDuration(entryMs(todayEntry))}</strong>
                   </p>
                   {todayEntry.pod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>📋 {todayEntry.pod}</p>}
                   {todayEntry.eod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '1px' }}>📝 {todayEntry.eod}</p>}
@@ -511,7 +569,7 @@ export default function TimesheetPage() {
             </thead>
             <tbody>
               {viewEntries.map(e => {
-                const ms      = calcMs(e.check_in, e.check_out)
+                const ms      = entryMs(e)
                 const active  = e.check_in && !e.check_out
                 const holiday = e.is_holiday
 
@@ -615,7 +673,7 @@ export default function TimesheetPage() {
         <div className="tb-modal-bg" onClick={e => { if (e.target === e.currentTarget) setShowPOD(false) }}>
           <div className="tb-modal" style={{ width: '100%', maxWidth: '460px' }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', background: 'linear-gradient(180deg,rgba(16,185,129,0.05) 0%,transparent 100%)' }}>
-              <h2 style={{ fontSize: '1rem', fontWeight: '600', margin: 0 }}>📋 Plan of Day</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: '600', margin: 0 }}>📋 Plan of Day <span style={{ color: 'var(--rose)', fontSize: '0.75rem' }}>*required</span></h2>
               <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.25rem' }}>What are you planning to work on today?</p>
             </div>
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -628,8 +686,8 @@ export default function TimesheetPage() {
                 autoFocus
               />
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                <button className="tb-btn" onClick={() => { setPodText(''); submitCheckIn() }}>Skip</button>
-                <button className="tb-btn tb-btn-primary" onClick={submitCheckIn} disabled={checking === 'in'}>
+                <button className="tb-btn" onClick={() => setShowPOD(false)}>Cancel</button>
+                <button className="tb-btn tb-btn-primary" onClick={submitCheckIn} disabled={checking === 'in' || !podText.trim()}>
                   {checking === 'in' ? 'Checking in…' : 'Check In'}
                 </button>
               </div>
@@ -643,7 +701,7 @@ export default function TimesheetPage() {
         <div className="tb-modal-bg" onClick={e => { if (e.target === e.currentTarget) setShowEOD(false) }}>
           <div className="tb-modal" style={{ width: '100%', maxWidth: '460px' }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', background: 'linear-gradient(180deg,rgba(59,130,246,0.05) 0%,transparent 100%)' }}>
-              <h2 style={{ fontSize: '1rem', fontWeight: '600', margin: 0 }}>📝 End of Day Report</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: '600', margin: 0 }}>📝 End of Day Report <span style={{ color: 'var(--rose)', fontSize: '0.75rem' }}>*required</span></h2>
               <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.25rem' }}>What did you accomplish today?</p>
             </div>
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -656,8 +714,8 @@ export default function TimesheetPage() {
                 autoFocus
               />
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                <button className="tb-btn" onClick={() => { setEodText(''); submitCheckOut() }}>Skip</button>
-                <button className="tb-btn tb-btn-primary" onClick={submitCheckOut} disabled={checking === 'out'}>
+                <button className="tb-btn" onClick={() => setShowEOD(false)}>Cancel</button>
+                <button className="tb-btn tb-btn-primary" onClick={submitCheckOut} disabled={checking === 'out' || !eodText.trim()}>
                   {checking === 'out' ? 'Checking out…' : 'Check Out'}
                 </button>
               </div>

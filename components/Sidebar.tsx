@@ -63,15 +63,6 @@ const NAV = [
     ),
     label: 'Leaves', href: '/leaves',
   },
-  {
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
-    ),
-    label: 'Import Excel', href: '/import',
-  },
 ]
 
 export default function Sidebar() {
@@ -166,6 +157,25 @@ export default function Sidebar() {
                 <line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/>
               </svg>
               Leave Requests
+            </Link>
+            <Link
+              href="/admin/leave-balances"
+              className={`nav-item ${path.startsWith('/admin/leave-balances') ? 'active' : ''}`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+              Leave Balances
+            </Link>
+            <Link
+              href="/import"
+              className={`nav-item ${path.startsWith('/import') ? 'active' : ''}`}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Import Excel
             </Link>
           </>
         )}

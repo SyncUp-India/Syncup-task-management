@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSessionFromRequest } from '@/lib/auth'
-import { sendSlack } from '@/lib/slack'
+import { sendSlackToDept } from '@/lib/slack'
 
 export async function GET(req: NextRequest) {
   const session = await getSessionFromRequest(req)
@@ -9,7 +9,19 @@ export async function GET(req: NextRequest) {
   let query = supabaseAdmin.from('tasks').select('*').order('created_at', { ascending: false })
 
   if (session && session.role !== 'admin') {
-    query = query.eq('department', session.department)
+    const { data: userRecord } = await supabaseAdmin
+      .from('users')
+      .select('extra_departments')
+      .eq('id', session.userId)
+      .single()
+
+    const extra = (userRecord?.extra_departments || []).filter(Boolean) as string[]
+
+    if (extra.length > 0 && session.department) {
+      query = query.in('department', [session.department, ...extra])
+    } else {
+      query = query.eq('department', session.department)
+    }
   }
 
   const { data, error } = await query
@@ -67,7 +79,8 @@ export async function POST(req: NextRequest) {
     if (u) assigneeName = u.name
   }
   const priorityEmoji: Record<string, string> = { high: '🔴', medium: '🟡', low: '🟢' }
-  sendSlack(
+  sendSlackToDept(
+    department,
     `📋 *New task:* ${data.title}\n` +
     `${priorityEmoji[data.priority] || '⚪'} *${data.priority}* priority | 👤 ${assigneeName}` +
     `${data.due_date ? ` | 📅 Due: ${data.due_date}` : ''}` +

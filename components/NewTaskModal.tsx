@@ -28,6 +28,7 @@ export default function NewTaskModal({ members, onClose, onCreated }: any) {
 
   async function submit() {
     if (!form.title.trim()) { alert('Title is required'); return }
+    if (!form.due_date) { alert('Due date is required'); return }
     setSaving(true)
 
     const body: any = {
@@ -172,9 +173,9 @@ export default function NewTaskModal({ members, onClose, onCreated }: any) {
               </select>
             </div>
             <div>
-              <Lbl>Due Date</Lbl>
+              <Lbl>Due Date *</Lbl>
               <input type="date" className="tb-input" value={form.due_date}
-                onChange={e => set('due_date', e.target.value)} />
+                onChange={e => set('due_date', e.target.value)} required />
             </div>
             <div>
               <Lbl>Estimate (hrs)</Lbl>

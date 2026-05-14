@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
+import { DEPT_META } from '@/lib/departments'
 
 const TITLES = ['dev', 'qa', 'pm', 'design', 'marketing', 'ops', 'other']
 
@@ -64,7 +65,7 @@ export default function MembersPage() {
         <div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '0.25rem', color: 'var(--ink)' }}>Team</h1>
           <p style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
-            {members.length} active member{members.length !== 1 ? 's' : ''}
+            {members.length} member{members.length !== 1 ? 's' : ''}{members.filter(m => !m.active).length > 0 ? ` (${members.filter(m => !m.active).length} inactive)` : ''}
           </p>
         </div>
         {isAdmin && (
@@ -117,7 +118,7 @@ export default function MembersPage() {
       {loading ? (
         <p style={{ color: 'var(--muted)', fontSize: '0.875rem' }}>Loading…</p>
       ) : members.length === 0 ? (
-        <p style={{ color: 'var(--muted)', fontSize: '0.875rem' }}>No active members.</p>
+        <p style={{ color: 'var(--muted)', fontSize: '0.875rem' }}>No members found.</p>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.875rem' }}>
           {members.map((m, i) => {
@@ -125,8 +126,10 @@ export default function MembersPage() {
             const color    = AVATAR_COLORS[i % AVATAR_COLORS.length]
             const initials = m.name.split(' ').map((p: string) => p[0]).join('').toUpperCase().slice(0, 2)
 
+            const dm = m.department ? DEPT_META[m.department] : null
+
             return (
-              <div key={m.id} className="tb-card" style={{ padding: '1.125rem 1.125rem 1rem' }}>
+              <div key={m.id} className="tb-card" style={{ padding: '1.125rem 1.125rem 1rem', opacity: m.active ? 1 : 0.6 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                   <div style={{
                     width: '44px', height: '44px', borderRadius: '12px',
@@ -169,13 +172,23 @@ export default function MembersPage() {
                   {m.role === 'admin' && (
                     <span style={{ marginLeft: '6px', fontSize: '0.625rem', background: 'rgba(124,92,252,0.12)', color: '#7c5cfc', padding: '1px 6px', borderRadius: '999px', fontWeight: '700', verticalAlign: 'middle' }}>Admin</span>
                   )}
+                  {!m.active && (
+                    <span style={{ marginLeft: '6px', fontSize: '0.625rem', background: 'rgba(244,63,94,0.1)', color: '#f43f5e', padding: '1px 6px', borderRadius: '999px', fontWeight: '700', verticalAlign: 'middle' }}>Inactive</span>
+                  )}
                 </p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.625rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.5rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {m.email || '—'}
                 </p>
-                <span style={{ display: 'inline-block', fontSize: '0.6875rem', fontWeight: '600', padding: '3px 10px', borderRadius: '999px', background: tm.bg, color: tm.color }}>
-                  {tm.label}
-                </span>
+                <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+                  <span style={{ display: 'inline-block', fontSize: '0.6875rem', fontWeight: '600', padding: '3px 10px', borderRadius: '999px', background: tm.bg, color: tm.color }}>
+                    {tm.label}
+                  </span>
+                  {dm && (
+                    <span style={{ display: 'inline-block', fontSize: '0.6875rem', fontWeight: '600', padding: '3px 10px', borderRadius: '999px', background: dm.bg, color: dm.color }}>
+                      {dm.label}
+                    </span>
+                  )}
+                </div>
               </div>
             )
           })}

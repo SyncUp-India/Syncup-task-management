@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation'
 
 interface AppUser {
   id: string; name: string; email: string; recovery_email: string | null
-  role: 'admin' | 'user'; department: string; active: boolean; created_at: string
+  role: 'admin' | 'user'; department: string; extra_departments: string[]; active: boolean; created_at: string
 }
 
-const EMPTY_CREATE = { name: '', email: '', password: '', recovery_email: '', department: '', role: 'user' }
-const EMPTY_EDIT   = { name: '', email: '', department: '', role: 'user' as 'admin' | 'user', active: true, password: '' }
+const EMPTY_CREATE = { name: '', email: '', password: '', recovery_email: '', department: '', role: 'user', extra_departments: [] as string[] }
+const EMPTY_EDIT   = { name: '', email: '', department: '', role: 'user' as 'admin' | 'user', active: true, password: '', extra_departments: [] as string[] }
 
 export default function AdminUsersPage() {
   const { user, loading } = useAuth()
@@ -48,7 +48,7 @@ export default function AdminUsersPage() {
 
   function openEdit(u: AppUser) {
     setEditTarget(u)
-    setEditForm({ name: u.name, email: u.email, department: u.department, role: u.role, active: u.active, password: '' })
+    setEditForm({ name: u.name, email: u.email, department: u.department, role: u.role, active: u.active, password: '', extra_departments: u.extra_departments || [] })
     setEditError('')
   }
 
@@ -76,11 +76,12 @@ export default function AdminUsersPage() {
     if (!editTarget) return
     setEditError(''); setSaving(true)
     const body: any = {
-      name:       editForm.name,
-      email:      editForm.email,
-      department: editForm.department,
-      role:       editForm.role,
-      active:     editForm.active,
+      name:              editForm.name,
+      email:             editForm.email,
+      department:        editForm.department,
+      role:              editForm.role,
+      active:            editForm.active,
+      extra_departments: editForm.extra_departments,
     }
     if (editForm.password) body.password = editForm.password
     const res = await fetch(`/api/admin/users/${editTarget.id}`, {
@@ -144,14 +145,52 @@ export default function AdminUsersPage() {
               <div><label style={lbl}>Password</label><input type="password" className="tb-input" required placeholder="Min 8 characters" value={createForm.password} onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))} /></div>
               <div>
                 <label style={lbl}>Department</label>
-                <select className="tb-input" value={createForm.department} onChange={e => setCreateForm(p => ({ ...p, department: e.target.value }))}>
+                <select className="tb-input" value={createForm.department} onChange={e => {
+                  const newDept = e.target.value
+                  setCreateForm(p => ({ ...p, department: newDept, extra_departments: p.extra_departments.filter(x => x !== newDept) }))
+                }}>
                   <option value="">— No department —</option>
                   {depts.map(d => <option key={d.name} value={d.name}>{d.label}</option>)}
                 </select>
               </div>
+              {createForm.role !== 'admin' && (() => {
+                const otherDepts = depts.filter(d => d.name !== createForm.department)
+                if (otherDepts.length === 0) return null
+                return (
+                  <div>
+                    <label style={lbl}>Can also see tasks from</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.625rem 0.75rem', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: '0.5rem' }}>
+                      {otherDepts.map(d => {
+                        const checked = createForm.extra_departments.includes(d.name)
+                        return (
+                          <label key={d.name} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e => setCreateForm(p => ({
+                                ...p,
+                                extra_departments: e.target.checked
+                                  ? [...p.extra_departments, d.name]
+                                  : p.extra_departments.filter(x => x !== d.name),
+                              }))}
+                              style={{ accentColor: 'var(--accent)', width: '15px', height: '15px' }}
+                            />
+                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '600', background: d.bg_color, color: d.color }}>
+                              {d.label}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--muted)', marginTop: '4px' }}>
+                      Tasks from checked departments will also appear on this user's board
+                    </p>
+                  </div>
+                )
+              })()}
               <div>
                 <label style={lbl}>Role</label>
-                <select className="tb-input" value={createForm.role} onChange={e => setCreateForm(p => ({ ...p, role: e.target.value }))}>
+                <select className="tb-input" value={createForm.role} onChange={e => setCreateForm(p => ({ ...p, role: e.target.value, extra_departments: [] }))}>
                   <option value="user">User — standard access</option>
                   <option value="admin">Admin — full access to all departments and settings</option>
                 </select>
@@ -176,13 +215,16 @@ export default function AdminUsersPage() {
               <div><label style={lbl}>Login Email</label><input type="email" className="tb-input" required value={editForm.email} onChange={e => setEditForm(p => ({ ...p, email: e.target.value }))} /></div>
               <div>
                 <label style={lbl}>Department</label>
-                <select className="tb-input" value={editForm.department} onChange={e => setEditForm(p => ({ ...p, department: e.target.value }))}>
+                <select className="tb-input" value={editForm.department} onChange={e => {
+                  const newDept = e.target.value
+                  setEditForm(p => ({ ...p, department: newDept, extra_departments: p.extra_departments.filter(x => x !== newDept) }))
+                }}>
                   {depts.map(d => <option key={d.name} value={d.name}>{d.label}</option>)}
                 </select>
               </div>
               <div>
                 <label style={lbl}>Role</label>
-                <select className="tb-input" value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value as 'admin' | 'user' }))}>
+                <select className="tb-input" value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value as 'admin' | 'user', extra_departments: [] }))}>
                   <option value="user">User — standard access</option>
                   <option value="admin">Admin — full access</option>
                 </select>
@@ -192,6 +234,43 @@ export default function AdminUsersPage() {
                   </p>
                 )}
               </div>
+              {/* Extra department access */}
+              {editForm.role !== 'admin' && (() => {
+                const otherDepts = depts.filter(d => d.name !== editForm.department)
+                if (otherDepts.length === 0) return null
+                return (
+                  <div>
+                    <label style={lbl}>Can also see tasks from</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.625rem 0.75rem', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: '0.5rem' }}>
+                      {otherDepts.map(d => {
+                        const checked = editForm.extra_departments.includes(d.name)
+                        return (
+                          <label key={d.name} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e => setEditForm(p => ({
+                                ...p,
+                                extra_departments: e.target.checked
+                                  ? [...p.extra_departments, d.name]
+                                  : p.extra_departments.filter(x => x !== d.name),
+                              }))}
+                              style={{ accentColor: 'var(--accent)', width: '15px', height: '15px' }}
+                            />
+                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '600', background: d.bg_color, color: d.color }}>
+                              {d.label}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--muted)', marginTop: '4px' }}>
+                      Tasks from checked departments will appear on this user's board
+                    </p>
+                  </div>
+                )
+              })()}
+
               <div>
                 <label style={lbl}>Status</label>
                 <select className="tb-input" value={editForm.active ? 'active' : 'inactive'} onChange={e => setEditForm(p => ({ ...p, active: e.target.value === 'active' }))}>
@@ -236,7 +315,13 @@ export default function AdminUsersPage() {
                     <td style={{ padding: '0.875rem 1rem', fontSize: '0.875rem', fontWeight: '600', color: 'var(--ink)' }}>{u.name}</td>
                     <td style={{ padding: '0.875rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>{u.email}</td>
                     <td style={{ padding: '0.875rem 1rem' }}>
-                      <span className="tb-chip" style={{ background: dm.bg_color || dm.bg, color: dm.color }}>{dm.label}</span>
+                      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span className="tb-chip" style={{ background: dm.bg_color || dm.bg, color: dm.color }}>{dm.label}</span>
+                        {(u.extra_departments || []).map(d => {
+                          const edm = getDeptMeta(d)
+                          return <span key={d} className="tb-chip" style={{ background: edm.bg_color || edm.bg, color: edm.color, opacity: 0.7, fontSize: '0.625rem' }}>+{edm.label}</span>
+                        })}
+                      </div>
                     </td>
                     <td style={{ padding: '0.875rem 1rem' }}>
                       <span className="tb-chip" style={{

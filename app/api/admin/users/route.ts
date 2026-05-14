@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('users')
-    .select('id, name, email, recovery_email, role, department, active, created_at')
+    .select('id, name, email, recovery_email, role, department, extra_departments, active, created_at')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { name, email, password, department, recovery_email, role: bodyRole } = await request.json()
+  const { name, email, password, department, recovery_email, role: bodyRole, extra_departments } = await request.json()
 
   if (!name || !email || !password) {
     return NextResponse.json({ error: 'Name, email and password are required' }, { status: 400 })
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
 
   const role = bodyRole === 'admin' ? 'admin' : 'user'
   const dept = department || null
+  const extraDepts = role === 'admin' ? [] : (Array.isArray(extra_departments) ? extra_departments.filter((d: string) => d !== dept) : [])
 
   const hash = await hashPassword(password)
 
@@ -48,9 +49,11 @@ export async function POST(request: NextRequest) {
       password_hash: hash,
       role,
       department: dept,
+      extra_departments: extraDepts,
+      active: true,
       created_by: session.userId,
     })
-    .select('id, name, email, recovery_email, role, department, active, created_at')
+    .select('id, name, email, recovery_email, role, department, extra_departments, active, created_at')
     .single()
 
   if (error) {

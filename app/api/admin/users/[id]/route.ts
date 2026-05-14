@@ -20,16 +20,17 @@ export async function PATCH(
   if (body.recovery_email !== undefined) {
     updates.recovery_email = body.recovery_email?.toLowerCase().trim() || null
   }
-  if (body.department !== undefined) updates.department = body.department
-  if (body.role       !== undefined) updates.role       = body.role // explicit role, independent of department
-  if (body.active     !== undefined) updates.active     = body.active
+  if (body.department        !== undefined) updates.department        = body.department
+  if (body.extra_departments !== undefined) updates.extra_departments = body.extra_departments ?? []
+  if (body.role              !== undefined) updates.role              = body.role
+  if (body.active            !== undefined) updates.active            = body.active
   if (body.password) updates.password_hash = await hashPassword(body.password)
 
   const { data, error } = await supabaseAdmin
     .from('users')
     .update(updates)
     .eq('id', params.id)
-    .select('id, name, email, recovery_email, role, department, active')
+    .select('id, name, email, recovery_email, role, department, extra_departments, active')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

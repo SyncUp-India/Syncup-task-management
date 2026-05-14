@@ -3,6 +3,21 @@ import { useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { DEPT_META, TASK_DEPARTMENTS } from '@/lib/departments';
 
+function fmtDt(ts: string | null) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
+  })
+}
+
+function durationLabel(from: string, to: string) {
+  const ms  = new Date(to).getTime() - new Date(from).getTime()
+  const h   = Math.floor(ms / 3600000)
+  const m   = Math.floor((ms % 3600000) / 60000)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
 function Field({ label, children }: any) {
   return (
     <div>
@@ -139,7 +154,9 @@ export default function TaskDetail({ task, members, onClose, onUpdate }: any) {
             <Field label="Status">
               {edit ? (
                 <select className="tb-input" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
-                  {['todo','inprogress','review','done','blocked'].map(s => <option key={s} value={s}>{s}</option>)}
+                  {['todo','inprogress','review','done','blocked']
+                    .filter(s => s !== 'review' || isAdmin || task.department === 'developer')
+                    .map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               ) : <span style={{ color: statusColors[task.status] }}>{task.status}</span>}
             </Field>
@@ -177,6 +194,64 @@ export default function TaskDetail({ task, members, onClose, onUpdate }: any) {
             </div>
             <div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
           </div>
+
+          {/* Timeline: assignee estimate vs actual */}
+          {(task.expected_hours_self || task.in_progress_at || task.delay_reason) && (
+            <div style={{ marginBottom: '1.125rem', padding: '0.875rem 1rem', background: 'var(--elevated)', border: '1px solid var(--border)', borderRadius: '0.625rem' }}>
+              <p style={{ fontSize: '0.6875rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '600', marginBottom: '0.625rem' }}>
+                Timeline
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', fontSize: '0.8125rem' }}>
+                {task.in_progress_at && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--muted)' }}>Started</span>
+                    <span style={{ color: 'var(--ink)' }}>{fmtDt(task.in_progress_at)}</span>
+                  </div>
+                )}
+                {task.expected_hours_self && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--muted)' }}>Assignee estimate</span>
+                    <span style={{ color: 'var(--sky)' }}>{task.expected_hours_self}h</span>
+                  </div>
+                )}
+                {task.expected_done_at && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--muted)' }}>Expected done by</span>
+                    <span style={{
+                      color: new Date(task.expected_done_at) < new Date() && task.status !== 'done'
+                        ? 'var(--rose)' : 'var(--ink)',
+                    }}>
+                      {fmtDt(task.expected_done_at)}
+                      {new Date(task.expected_done_at) < new Date() && task.status !== 'done' && ' ⚠️'}
+                    </span>
+                  </div>
+                )}
+                {task.completed_at && task.in_progress_at && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.375rem', borderTop: '1px solid var(--border)' }}>
+                    <span style={{ color: 'var(--muted)' }}>Actual time taken</span>
+                    <span style={{ color: 'var(--emerald)', fontWeight: '600' }}>
+                      {durationLabel(task.in_progress_at, task.completed_at)}
+                      {task.expected_hours_self && (() => {
+                        const actualH = (new Date(task.completed_at).getTime() - new Date(task.in_progress_at).getTime()) / 3600000
+                        const diff    = actualH - task.expected_hours_self
+                        return diff > 0
+                          ? <span style={{ color: 'var(--rose)', fontSize: '0.75rem', marginLeft: '6px' }}>+{diff.toFixed(1)}h over</span>
+                          : diff < -0.25
+                          ? <span style={{ color: 'var(--emerald)', fontSize: '0.75rem', marginLeft: '6px' }}>{Math.abs(diff).toFixed(1)}h early</span>
+                          : null
+                      })()}
+                    </span>
+                  </div>
+                )}
+                {task.delay_reason && (
+                  <div style={{ paddingTop: '0.375rem', borderTop: '1px solid var(--border)' }}>
+                    <span style={{ color: 'var(--muted)', display: 'block', marginBottom: '2px' }}>Delay reason</span>
+                    <span style={{ color: 'var(--rose)', fontSize: '0.8125rem' }}>{task.delay_reason}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Description */}
           <div style={{ marginBottom: '1.125rem' }}>

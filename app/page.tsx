@@ -5,6 +5,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 import TaskCard from '@/components/TaskCard';
 import TaskDetail from '@/components/TaskDetail';
 import NewTaskModal from '@/components/NewTaskModal';
+import StatusChangeModal from '@/components/StatusChangeModal';
 import { useAuth } from '@/context/AuthContext';
 import { BOARD_TITLE, DEPT_META, TASK_DEPARTMENTS } from '@/lib/departments';
 
@@ -19,7 +20,8 @@ const COLUMNS = [
 
 export default function BoardPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin   = user?.role === 'admin';
+  const showReview = isAdmin || user?.department === 'developer';
 
   const [tasks, setTasks]               = useState<Task[]>([]);
   const [members, setMembers]           = useState<any[]>([]);
@@ -31,6 +33,9 @@ export default function BoardPage() {
   const [filterOverdue, setFilterOverdue]   = useState(false);
   const [filterDept, setFilterDept]         = useState('');
   const draggingRef = useRef(false);
+
+  // Pending status change (intercept before drag completes)
+  const [pendingChange, setPendingChange] = useState<{ task: Task; newStatus: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -72,6 +77,17 @@ export default function BoardPage() {
     load();
   }
 
+  async function applyStatusChange(task: Task, patch: Record<string, any>) {
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: patch.status } : t));
+    await fetch(`/api/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    setPendingChange(null);
+    load();
+  }
+
   function onDragEnd(result: DropResult) {
     draggingRef.current = false;
     const { draggableId, source, destination } = result;
@@ -80,12 +96,20 @@ export default function BoardPage() {
     if (source.droppableId === newStatus) return;
 
     const taskId = parseInt(draggableId);
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-    fetch(`/api/tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    }).catch(console.error);
+    const task   = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    // Only inprogress needs the estimate modal
+    if (newStatus === 'inprogress') {
+      setPendingChange({ task, newStatus });
+    } else {
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+      fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      }).catch(console.error);
+    }
   }
 
   return (
@@ -161,8 +185,8 @@ export default function BoardPage() {
           onDragStart={() => { draggingRef.current = true; }}
           onDragEnd={onDragEnd}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.875rem' }}>
-            {COLUMNS.map(col => {
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showReview ? 4 : 3}, minmax(0, 1fr))`, gap: '0.875rem' }}>
+            {COLUMNS.filter(c => c.key !== 'review' || showReview).map(col => {
               const colTasks = filtered.filter(t => t.status === col.key);
               return (
                 <Droppable key={col.key} droppableId={col.key}>
@@ -233,7 +257,17 @@ export default function BoardPage() {
           task={selected}
           members={members}
           onClose={() => setSelected(null)}
-          onUpdate={(patch: any) => updateTask(selected.id, patch).then(() => setSelected(null))}
+          onUpdate={async (patch: any) => {
+            // Intercept status changes that need a modal
+            if (patch.status && patch.status === 'inprogress' &&
+                patch.status !== selected.status) {
+              setPendingChange({ task: selected, newStatus: patch.status });
+              setSelected(null);
+            } else {
+              await updateTask(selected.id, patch);
+              setSelected(null);
+            }
+          }}
         />
       )}
       {showNew && (
@@ -241,6 +275,14 @@ export default function BoardPage() {
           members={members}
           onClose={() => setShowNew(false)}
           onCreated={() => { setShowNew(false); load(); }}
+        />
+      )}
+      {pendingChange && (
+        <StatusChangeModal
+          task={pendingChange.task}
+          newStatus={pendingChange.newStatus}
+          onConfirm={patch => applyStatusChange(pendingChange.task, patch)}
+          onCancel={() => { setPendingChange(null); load(); }}
         />
       )}
     </div>
