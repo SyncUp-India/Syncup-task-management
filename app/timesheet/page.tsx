@@ -471,20 +471,28 @@ export default function TimesheetPage() {
 
             {/* Done */}
             {todayEntry?.check_in && todayEntry.check_out && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--emerald)', marginBottom: '3px' }}>Day completed</p>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
+                      {fmtTime(todayEntry.check_in)} – {fmtTime(todayEntry.check_out)}
+                      &nbsp;·&nbsp;
+                      <strong style={{ color: 'var(--ink)' }}>{fmtDuration(entryMs(todayEntry))}</strong>
+                    </p>
+                    {todayEntry.pod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>📋 {todayEntry.pod}</p>}
+                    {todayEntry.eod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '1px' }}>📝 {todayEntry.eod}</p>}
+                  </div>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--emerald)', marginBottom: '3px' }}>Day completed</p>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                    {fmtTime(todayEntry.check_in)} – {fmtTime(todayEntry.check_out)}
-                    &nbsp;·&nbsp;
-                    <strong style={{ color: 'var(--ink)' }}>{fmtDuration(entryMs(todayEntry))}</strong>
-                  </p>
-                  {todayEntry.pod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>📋 {todayEntry.pod}</p>}
-                  {todayEntry.eod && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '1px' }}>📝 {todayEntry.eod}</p>}
-                </div>
+                <button className="tb-btn" onClick={() => { setPodText(''); setShowPOD(true) }} style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
+                    <polyline points="5 12 12 5 19 12"/><line x1="12" y1="5" x2="12" y2="19"/>
+                  </svg>
+                  Check In Again
+                </button>
               </div>
             )}
           </div>
